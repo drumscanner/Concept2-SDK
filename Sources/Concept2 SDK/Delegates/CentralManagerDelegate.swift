@@ -47,9 +47,13 @@ final class CentralManagerDelegate:NSObject, CBCentralManagerDelegate {
         rssi RSSI: NSNumber
     ) {
     print("[BluetoothManager]didDiscoverPeripheral \(peripheral)")
-    PerformanceMonitorStore.sharedInstance.addPerformanceMonitor(
-        performanceMonitor: PerformanceMonitor(withPeripheral: peripheral)
-    )
+    // A repeated advertisement must not create another PerformanceMonitor: its init takes over
+    // peripheral.delegate (a weak reference), and the unused duplicate would then be released,
+    // leaving the peripheral with no delegate and the stored monitor deaf to all callbacks.
+    let store = PerformanceMonitorStore.sharedInstance
+    if store.performanceMonitorWithPeripheral(peripheral: peripheral) == nil {
+        store.addPerformanceMonitor(performanceMonitor: PerformanceMonitor(withPeripheral: peripheral))
+    }
   }
   
   // MARK: Peripheral Connections

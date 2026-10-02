@@ -41,6 +41,7 @@ final class PeripheralDelegate: NSObject, CBPeripheralDelegate {
         service.characteristics?.forEach({ (characteristic:CBCharacteristic) -> () in
             peripheral.setNotifyValue(true, for: characteristic)
         })
+        performanceMonitor?.flushPendingFrames()
     }
     
     func peripheral(_ peripheral: CBPeripheral, didDiscoverDescriptorsFor characteristic: CBCharacteristic, error: Error?) {
@@ -72,7 +73,7 @@ final class PeripheralDelegate: NSObject, CBPeripheralDelegate {
     
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         
-        print("[PerformanceMonitor]didWriteValueForCharacteristic")
+        print("[PerformanceMonitor]didWriteValueForCharacteristic error: \(String(describing: error))")
     }
     
     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {

@@ -153,6 +153,44 @@ public final class PerformanceMonitor
     beltID.value = 0
   }
   
+  private var pendingFrames = [Data]()
+
+  private var controlCommandCharacteristic:CBCharacteristic? {
+    return peripheral.services?
+      .first(where: { $0.uuid == Service.control.uuid })?
+      .characteristics?
+      .first(where: { $0.uuid == ControlCharacteristic.command.uuid })
+  }
+
+  /// Writes a raw CSAFE frame to the PM5 control (receive) characteristic.
+  /// If the control characteristic hasn't been discovered yet (e.g. the PM5 was already
+  /// connected before this app used it), discovery is started and the frame is sent as soon
+  /// as it completes. Returns false only if the PM5 isn't connected.
+  @discardableResult
+  public func sendCSAFEFrame(_ frame:Data) -> Bool {
+    guard isConnected else { return false }
+    pendingFrames.append(frame)
+    if controlCommandCharacteristic != nil {
+      flushPendingFrames()
+    } else {
+      print("[PerformanceMonitor]control characteristic not discovered yet, discovering")
+      if let control = peripheral.services?.first(where: { $0.uuid == Service.control.uuid }) {
+        peripheral.discoverCharacteristics([ControlCharacteristic.command.uuid], for: control)
+      } else {
+        peripheral.discoverServices([Service.control.uuid])
+      }
+    }
+    return true
+  }
+
+  func flushPendingFrames() {
+    guard !pendingFrames.isEmpty, let characteristic = controlCommandCharacteristic else { return }
+    let type:CBCharacteristicWriteType =
+      characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
+    pendingFrames.forEach { peripheral.writeValue($0, for: characteristic, type: type) }
+    pendingFrames.removeAll()
+  }
+
   // MARK: -
   func updatePeripheralObservers() {
     print("[PerformanceMonitor]updatePeripheralObservers")

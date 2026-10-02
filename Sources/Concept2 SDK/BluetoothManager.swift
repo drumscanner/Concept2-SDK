@@ -75,6 +75,15 @@ public final class BluetoothManager
     }
     
     func scanForPerformanceMonitors() {
+        // A PM5 that is already connected (e.g. to another process on this device) stops
+        // advertising, so a scan alone would never find it.
+        centralManager.retrieveConnectedPeripherals(withServices: [Service.deviceDiscovery.uuid])
+            .forEach { peripheral in
+                let store = PerformanceMonitorStore.sharedInstance
+                if store.performanceMonitorWithPeripheral(peripheral: peripheral) == nil {
+                    store.addPerformanceMonitor(performanceMonitor: PerformanceMonitor(withPeripheral: peripheral))
+                }
+            }
         centralManager.scanForPeripherals(withServices: [Service.deviceDiscovery.uuid],
                                           options: nil)
     }
