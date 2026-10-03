@@ -84,6 +84,13 @@ public final class PerformanceMonitor
   public let workoutState = Subject<WorkoutState?>(value: nil)
   public let workoutType = Subject<WorkoutType?>(value: nil)
   public let workPerStroke = Subject<C2Work>(value: 0)
+
+  /// The force curve of the last completed stroke (16-bit samples, drive to recovery).
+  /// Updated once all of the stroke's notification packets have arrived.
+  public let forceCurve = Subject<[Int]>(value: [])
+  private var forceCurvePoints = [Int]()
+  private var forceCurveExpectedPackets = 0
+  private var forceCurveReceivedPackets = 0
   
   // MARK: Heart Rate Belt
   public let manufacturerID = Subject<C2HeartRateBeltManufacturerID>(value: 0)
@@ -189,6 +196,29 @@ public final class PerformanceMonitor
       characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
     pendingFrames.forEach { peripheral.writeValue($0, for: characteristic, type: type) }
     pendingFrames.removeAll()
+  }
+
+  // MARK: Force curve
+  /// A curve is sent as several packets, always starting at sequence 0. Packets that arrive
+  /// before a sequence 0 (joining mid-stroke) are ignored.
+  func addForceCurvePacket(_ packet:RowingForceCurvePacket) {
+    if packet.sequence == 0 {
+      forceCurvePoints.removeAll()
+      forceCurveReceivedPackets = 0
+      forceCurveExpectedPackets = packet.totalPackets
+    }
+    guard forceCurveExpectedPackets > 0 else { return }
+
+    forceCurvePoints.append(contentsOf: packet.points)
+    forceCurveReceivedPackets += 1
+
+    if forceCurveReceivedPackets >= forceCurveExpectedPackets {
+      let curve = forceCurvePoints
+      forceCurvePoints.removeAll()
+      forceCurveReceivedPackets = 0
+      forceCurveExpectedPackets = 0
+      forceCurve.value = curve
+    }
   }
 
   // MARK: -

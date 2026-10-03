@@ -20,6 +20,7 @@ public enum RowingCharacteristic:Characteristic {
   case workoutSummaryData
   case additionalWorkoutSummaryData
   case heartRateBeltInformation
+  case forceCurveData
   case mutliplexedInformation
   
   init?(uuid:CBUUID) {
@@ -46,6 +47,8 @@ public enum RowingCharacteristic:Characteristic {
       self = .additionalWorkoutSummaryData
       case Self.heartRateBeltInformation.uuid:
       self = .heartRateBeltInformation
+      case Self.forceCurveData.uuid:
+      self = .forceCurveData
       case Self.mutliplexedInformation.uuid:
       self = .mutliplexedInformation
     default:
@@ -77,6 +80,8 @@ public enum RowingCharacteristic:Characteristic {
           return "CE06003A-43E5-11E4-916C-0800200C9A66"
         case .heartRateBeltInformation:
           return "CE06003B-43E5-11E4-916C-0800200C9A66"
+        case .forceCurveData:
+          return "CE06003D-43E5-11E4-916C-0800200C9A66"
         case .mutliplexedInformation:
           return "CE060080-43E5-11E4-916C-0800200C9A66"
         }
@@ -106,6 +111,8 @@ public enum RowingCharacteristic:Characteristic {
       return CBUUID(string: "CE06003A-43E5-11E4-916C-0800200C9A66")
     case .heartRateBeltInformation:
       return CBUUID(string: "CE06003B-43E5-11E4-916C-0800200C9A66")
+    case .forceCurveData:
+      return CBUUID(string: "CE06003D-43E5-11E4-916C-0800200C9A66")
     case .mutliplexedInformation:
       return CBUUID(string: "CE060080-43E5-11E4-916C-0800200C9A66")
     }
@@ -136,6 +143,8 @@ public enum RowingCharacteristic:Characteristic {
         return RowingAdditionalWorkoutSummaryData(fromData: data)
       case .heartRateBeltInformation:
         return RowingHeartRateBeltInformation(fromData: data)
+      case .forceCurveData:
+        return RowingForceCurvePacket(fromData: data)
       case .mutliplexedInformation:
         return nil // JLC: this service gives the same data as the others
       }

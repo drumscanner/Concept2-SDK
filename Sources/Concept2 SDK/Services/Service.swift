@@ -71,6 +71,7 @@ public enum Service {
         RowingCharacteristic.workoutSummaryData.uuid,
         RowingCharacteristic.additionalWorkoutSummaryData.uuid,
         RowingCharacteristic.heartRateBeltInformation.uuid,
+        RowingCharacteristic.forceCurveData.uuid,
         RowingCharacteristic.mutliplexedInformation.uuid]
     default:
       return nil
