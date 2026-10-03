@@ -50,7 +50,6 @@ final class PeripheralDelegate: NSObject, CBPeripheralDelegate {
     
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         
-        print("[PerformanceMonitor]didUpdateValueForCharacteristic: \(characteristic)")
         if let characteristicService = characteristic.service,
            let svc = Service(uuid: characteristicService.uuid) {
             if let c = svc.characteristic(uuid: characteristic.uuid) {
