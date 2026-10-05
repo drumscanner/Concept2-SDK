@@ -11,6 +11,27 @@ import CoreBluetooth
 public final class PerformanceMonitor
 {
     public static let DidUpdateStateNotification = Notification.Name("PerformanceMonitorDidUpdateStateNotification")
+
+    /// Posted, with the monitor as its object, for every notification received from the PM5, before
+    /// it is interpreted. The user info holds the characteristic's name (`RawDataKey.name`), the
+    /// bytes exactly as received (`RawDataKey.data`) and when they arrived (`RawDataKey.date`).
+    public static let DidReceiveRawDataNotification = Notification.Name("PerformanceMonitorDidReceiveRawDataNotification")
+
+    public enum RawDataKey {
+        public static let name = "name"
+        public static let data = "data"
+        public static let date = "date"
+        /// A closure returning the notification's parsed values as `[ParsedField]`. It is only
+        /// evaluated when called, so listeners that don't need the values cost nothing.
+        public static let fields = "fields"
+    }
+
+    /// One value parsed out of a notification, such as `elapsedTime` = `12.34`. Enumerations show
+    /// their case name, e.g. `rowingState` = `active`.
+    public struct ParsedField {
+        public let name:String
+        public let value:String
+    }
   
   //
   var peripheral:CBPeripheral
@@ -160,42 +181,60 @@ public final class PerformanceMonitor
     beltID.value = 0
   }
   
-  private var pendingFrames = [Data]()
+  private struct PendingWrite {
+    let service:CBUUID
+    let characteristic:CBUUID
+    let data:Data
+  }
+  private var pendingWrites = [PendingWrite]()
 
-  private var controlCommandCharacteristic:CBCharacteristic? {
+  private func discoveredCharacteristic(service serviceUUID:CBUUID, characteristic characteristicUUID:CBUUID) -> CBCharacteristic? {
     return peripheral.services?
-      .first(where: { $0.uuid == Service.control.uuid })?
+      .first(where: { $0.uuid == serviceUUID })?
       .characteristics?
-      .first(where: { $0.uuid == ControlCharacteristic.command.uuid })
+      .first(where: { $0.uuid == characteristicUUID })
   }
 
-  /// Writes a raw CSAFE frame to the PM5 control (receive) characteristic.
-  /// If the control characteristic hasn't been discovered yet (e.g. the PM5 was already
-  /// connected before this app used it), discovery is started and the frame is sent as soon
-  /// as it completes. Returns false only if the PM5 isn't connected.
-  @discardableResult
-  public func sendCSAFEFrame(_ frame:Data) -> Bool {
+  /// Writes `data` to a characteristic. If the characteristic hasn't been discovered yet (e.g. the
+  /// PM5 was already connected before this app used it), discovery is started and the write is
+  /// made as soon as it completes. Returns false only if the PM5 isn't connected.
+  private func write(_ data:Data, service:CBUUID, characteristic:CBUUID) -> Bool {
     guard isConnected else { return false }
-    pendingFrames.append(frame)
-    if controlCommandCharacteristic != nil {
-      flushPendingFrames()
+    pendingWrites.append(PendingWrite(service: service, characteristic: characteristic, data: data))
+    if discoveredCharacteristic(service: service, characteristic: characteristic) != nil {
+      flushPendingWrites()
+    } else if let svc = peripheral.services?.first(where: { $0.uuid == service }) {
+      peripheral.discoverCharacteristics([characteristic], for: svc)
     } else {
-      print("[PerformanceMonitor]control characteristic not discovered yet, discovering")
-      if let control = peripheral.services?.first(where: { $0.uuid == Service.control.uuid }) {
-        peripheral.discoverCharacteristics([ControlCharacteristic.command.uuid], for: control)
-      } else {
-        peripheral.discoverServices([Service.control.uuid])
-      }
+      peripheral.discoverServices([service])
     }
     return true
   }
 
-  func flushPendingFrames() {
-    guard !pendingFrames.isEmpty, let characteristic = controlCommandCharacteristic else { return }
-    let type:CBCharacteristicWriteType =
-      characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
-    pendingFrames.forEach { peripheral.writeValue($0, for: characteristic, type: type) }
-    pendingFrames.removeAll()
+  /// Writes a raw CSAFE frame to the PM5 control (receive) characteristic.
+  @discardableResult
+  public func sendCSAFEFrame(_ frame:Data) -> Bool {
+    return write(frame, service: Service.control.uuid, characteristic: ControlCharacteristic.command.uuid)
+  }
+
+  /// Sets how often the PM5 sends its general and additional status data.
+  @discardableResult
+  public func setStatusSampleRate(_ rate:RowingStatusSampleRateType) -> Bool {
+    return write(Data([rate.rawValue]), service: Service.rowing.uuid,
+                 characteristic: RowingCharacteristic.statusSampleRate.uuid)
+  }
+
+  /// Makes the writes that were waiting for their characteristic to be discovered.
+  func flushPendingWrites() {
+    pendingWrites.removeAll { pending in
+      guard let characteristic = discoveredCharacteristic(service: pending.service,
+                                                          characteristic: pending.characteristic)
+      else { return false }
+      let type:CBCharacteristicWriteType =
+        characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
+      peripheral.writeValue(pending.data, for: characteristic, type: type)
+      return true
+    }
   }
 
   // MARK: Force curve
