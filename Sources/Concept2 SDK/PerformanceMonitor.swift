@@ -45,6 +45,8 @@ public final class PerformanceMonitor
   
   // MARK: Rowing Information
   public let averageCalories = Subject<C2CalorieCount>(value: 0)
+  /// Average power over the whole workout, as reported by the PM5.
+  public let averagePower = Subject<C2Power>(value: 0)
   public let averageDriveForce = Subject<C2DriveForce>(value: 0)
   public let averageHeartRate = Subject<C2HeartRate>(value: 0)
   public let averagePace = Subject<C2Pace>(value: 0)
@@ -129,6 +131,7 @@ public final class PerformanceMonitor
   // MARK: API
   public func reset() {
     averageCalories.value = 0
+    averagePower.value = 0
     averageDriveForce.value = 0
     averagePace.value = 0
     currentPace.value = 0

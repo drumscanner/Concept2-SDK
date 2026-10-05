@@ -9,7 +9,7 @@
 import Foundation
 
 struct RowingAdditionalStatus2: CharacteristicModel, CustomDebugStringConvertible {
-  let DataLength = 18
+  let DataLength = 20
   
   /*
     Data bytes packed as follows:
@@ -17,6 +17,8 @@ struct RowingAdditionalStatus2: CharacteristicModel, CustomDebugStringConvertibl
     Elapsed Time Mid,
     Elapsed Time High,
     Interval Count, CSAFE_PM_GET_WORKOUTINTERVALCOUNT14
+    Average Power Lo (watts), CSAFE_PM_GET_TOTAL_AVG_POWER
+    Average Power Hi,
     Total Calories Lo (cals), CSAFE_PM_GET_TOTAL_AVG_CALORIES
     Total Calories Hi,
     Split/Int Avg Pace Lo (0.01 sec lsb), CSAFE_PM_GET_SPLIT_AVG_500MPACE
@@ -35,6 +37,7 @@ struct RowingAdditionalStatus2: CharacteristicModel, CustomDebugStringConvertibl
   
   var elapsedTime:C2TimeInterval
   var intervalCount:C2IntervalCount
+  var averagePower:C2Power
   var totalCalories:C2CalorieCount
   var intervalAveragePace:C2Pace
   var intervalAveragePower:C2Power
@@ -48,18 +51,20 @@ struct RowingAdditionalStatus2: CharacteristicModel, CustomDebugStringConvertibl
     
     elapsedTime = C2TimeInterval(timeWithLow: UInt32(arr[0]), mid: UInt32(arr[1]), high: UInt32(arr[2]))
     intervalCount = C2IntervalCount(arr[3])
-    totalCalories = C2CalorieCount(calorieCountWithLow: UInt16(arr[4]), high: UInt16(arr[5]))
-    intervalAveragePace = C2Pace(paceWithLow: UInt16(arr[6]), high: UInt16(arr[7]))
-    intervalAveragePower = C2Power(powerWithLow: UInt16(arr[8]), high: UInt16(arr[9]))
-    intervalAverageCalories = C2CalorieCount(calorieCountWithLow: UInt16(arr[10]), high: UInt16(arr[11]))
-    lastSplitTime = C2TimeInterval(timeWithLow: UInt32(arr[12]), mid: UInt32(arr[13]), high: UInt32(arr[14]))
-    lastSplitDistance = C2Distance(distanceWithLow: UInt32(arr[15]), mid: UInt32(arr[16]), high: UInt32(arr[17]))
+    averagePower = C2Power(powerWithLow: UInt16(arr[4]), high: UInt16(arr[5]))
+    totalCalories = C2CalorieCount(calorieCountWithLow: UInt16(arr[6]), high: UInt16(arr[7]))
+    intervalAveragePace = C2Pace(paceWithLow: UInt16(arr[8]), high: UInt16(arr[9]))
+    intervalAveragePower = C2Power(powerWithLow: UInt16(arr[10]), high: UInt16(arr[11]))
+    intervalAverageCalories = C2CalorieCount(calorieCountWithLow: UInt16(arr[12]), high: UInt16(arr[13]))
+    lastSplitTime = C2TimeInterval(timeWithLow: UInt32(arr[14]), mid: UInt32(arr[15]), high: UInt32(arr[16]))
+    lastSplitDistance = C2Distance(distanceWithLow: UInt32(arr[17]), mid: UInt32(arr[18]), high: UInt32(arr[19]))
   }
   
   // MARK: PerformanceMonitor
   func updatePerformanceMonitor(performanceMonitor:PerformanceMonitor) {
     performanceMonitor.elapsedTime.value = elapsedTime
     performanceMonitor.intervalCount.value = intervalCount
+    performanceMonitor.averagePower.value = averagePower
     performanceMonitor.totalCalories.value = totalCalories
     performanceMonitor.intervalAveragePace.value = intervalAveragePace
     performanceMonitor.intervalAveragePower.value = intervalAveragePower
