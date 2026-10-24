@@ -63,6 +63,7 @@ struct RowingStrokeData: CharacteristicModel, CustomDebugStringConvertible {
   
   // MARK: PerformanceMonitor
   func updatePerformanceMonitor(performanceMonitor:PerformanceMonitor) {
+    let receivedAt = Date()
     performanceMonitor.elapsedTime.value = elapsedTime
     performanceMonitor.distance.value = distance
     performanceMonitor.driveLength.value = driveLength
@@ -73,6 +74,7 @@ struct RowingStrokeData: CharacteristicModel, CustomDebugStringConvertible {
     performanceMonitor.averageDriveForce.value = averageDriveForce
     performanceMonitor.workPerStroke.value = workPerStroke
     performanceMonitor.strokeCount.value = strokeCount
+    performanceMonitor.strokeEvent.value = StrokeEvent(elapsedTime: elapsedTime, strokeCount: strokeCount, receivedAt: receivedAt)
   }
   
   // MARK: -

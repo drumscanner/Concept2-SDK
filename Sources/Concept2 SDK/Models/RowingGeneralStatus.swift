@@ -65,6 +65,7 @@ struct RowingGeneralStatus: CharacteristicModel, CustomDebugStringConvertible {
   
   // MARK: PerformanceMonitor
   func updatePerformanceMonitor(performanceMonitor:PerformanceMonitor) {
+    performanceMonitor.timedElapsedTime.value = TimedElapsedTime(elapsedTime: elapsedTime, strokeState: strokeState, receivedAt: Date())
     performanceMonitor.elapsedTime.value = elapsedTime
     performanceMonitor.distance.value = distance
     performanceMonitor.workoutType.value = workoutType

@@ -8,6 +8,19 @@
 
 import CoreBluetooth
 
+public struct TimedElapsedTime {
+  public let elapsedTime:C2TimeInterval
+  public let strokeState:StrokeState?
+  public let receivedAt:Date
+}
+
+public struct StrokeEvent {
+  public let elapsedTime:C2TimeInterval
+  /// The PM5's stroke count, which goes up at the end of a drive.
+  public let strokeCount:C2StrokeCount
+  public let receivedAt:Date
+}
+
 public final class PerformanceMonitor
 {
     public static let DidUpdateStateNotification = Notification.Name("PerformanceMonitorDidUpdateStateNotification")
@@ -107,6 +120,13 @@ public final class PerformanceMonitor
   public let workoutState = Subject<WorkoutState?>(value: nil)
   public let workoutType = Subject<WorkoutType?>(value: nil)
   public let workPerStroke = Subject<C2Work>(value: 0)
+
+  /// The PM5's elapsed time (as sent in the general status) with the time it arrived here. Comparing
+  /// the two over several updates tells which device time an elapsed time corresponds to.
+  public let timedElapsedTime = Subject<TimedElapsedTime?>(value: nil)
+  /// The PM5 sends its stroke data at the start and at the end of each drive; this is the latest
+  /// with the PM5's elapsed time (to 0.01 s) and the time it arrived here.
+  public let strokeEvent = Subject<StrokeEvent?>(value: nil)
 
   /// The force curve of the last completed stroke (16-bit samples, drive to recovery).
   /// Updated once all of the stroke's notification packets have arrived.
