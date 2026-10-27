@@ -105,7 +105,8 @@ public final class BluetoothManager
                     }
                 }
         }
-        centralManager.connect(performanceMonitor.peripheral, options: nil)
+        guard let peripheral = performanceMonitor.peripheral else { return }
+        centralManager.connect(peripheral, options: nil)
     }
     
     func connectPerformanceMonitor(performanceMonitor:PerformanceMonitor) {
@@ -113,6 +114,7 @@ public final class BluetoothManager
     }
     
     func disconnectPerformanceMonitor(performanceMonitor:PerformanceMonitor) {
-        centralManager.cancelPeripheralConnection(performanceMonitor.peripheral)
+        guard let peripheral = performanceMonitor.peripheral else { return }
+        centralManager.cancelPeripheralConnection(peripheral)
     }
 }

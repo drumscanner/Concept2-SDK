@@ -54,27 +54,11 @@ final class PeripheralDelegate: NSObject, CBPeripheralDelegate {
            let svc = Service(uuid: characteristicService.uuid) {
             known = svc.characteristic(uuid: characteristic.uuid)
         }
-        let model = known?.parse(data: characteristic.value)
-
-        if let data = characteristic.value, let pm = performanceMonitor {
-            let name = known.map { "\(type(of: $0)).\($0)" } ?? "unknown.\(characteristic.uuid.uuidString)"
-            let fields: () -> [PerformanceMonitor.ParsedField] = { Self.parsedFields(of: model) }
-            NotificationCenter.default.post(
-                name: PerformanceMonitor.DidReceiveRawDataNotification,
-                object: pm,
-                userInfo: [PerformanceMonitor.RawDataKey.name: name,
-                           PerformanceMonitor.RawDataKey.data: data,
-                           PerformanceMonitor.RawDataKey.date: Date(),
-                           PerformanceMonitor.RawDataKey.fields: fields])
-        }
-
-        if let model, let pm = performanceMonitor {
-            model.updatePerformanceMonitor(performanceMonitor: pm)
-        }
+        performanceMonitor?.deliver(known, name: "unknown.\(characteristic.uuid.uuidString)", data: characteristic.value)
     }
 
     /// The stored properties of a parsed notification, by name.
-    private static func parsedFields(of model: CharacteristicModel?) -> [PerformanceMonitor.ParsedField] {
+    static func parsedFields(of model: CharacteristicModel?) -> [PerformanceMonitor.ParsedField] {
         guard let model else { return [] }
         return Mirror(reflecting: model).children.compactMap { child in
             guard let label = child.label, label != "DataLength" else { return nil }

@@ -47,14 +47,27 @@ public final class PerformanceMonitor
     }
   
   //
-  var peripheral:CBPeripheral
+  /// How this PM5 is connected to the device.
+  public enum Kind { case bluetooth, usb }
+  public let kind:Kind
+
+  /// The Bluetooth peripheral; nil for a PM5 on a USB cable.
+  var peripheral:CBPeripheral?
   lazy var peripheralDelegate = PeripheralDelegate()
+
+  // The USB side, for a PM5 on a USB cable.
+  var usbName = ""
+  var usbIdentifier = ""
+  var usbConnected = false
+  #if os(macOS)
+  var usbPoller:USBPoller?
+  #endif
   
   // MARK: Basic Information
-  public var peripheralName:String { get { return peripheral.name ?? "Unknown" } }
-  public var peripheralIdentifier:String { get { return peripheral.identifier.uuidString } }
+  public var peripheralName:String { get { return kind == .usb ? usbName : (peripheral?.name ?? "Unknown") } }
+  public var peripheralIdentifier:String { get { return kind == .usb ? usbIdentifier : (peripheral?.identifier.uuidString ?? "") } }
   
-  public var isConnected:Bool { get { return (peripheral.state == .connected) } }
+  public var isConnected:Bool { get { return kind == .usb ? usbConnected : (peripheral?.state == .connected) } }
   
   // MARK: Rowing Information
   public let averageCalories = Subject<C2CalorieCount>(value: 0)
@@ -142,10 +155,18 @@ public final class PerformanceMonitor
   
   // MARK: - Initialization
   init(withPeripheral peripheral:CBPeripheral) {
+    self.kind = .bluetooth
     self.peripheral = peripheral
     
     peripheralDelegate.performanceMonitor = self
     peripheral.delegate = peripheralDelegate
+  }
+
+  /// A PM5 on a USB cable. It is not connected until `USBManager` connects it.
+  init(usbName:String, usbIdentifier:String) {
+    self.kind = .usb
+    self.usbName = usbName
+    self.usbIdentifier = usbIdentifier
   }
   
   // MARK: API
@@ -212,7 +233,7 @@ public final class PerformanceMonitor
   private var pendingWrites = [PendingWrite]()
 
   private func discoveredCharacteristic(service serviceUUID:CBUUID, characteristic characteristicUUID:CBUUID) -> CBCharacteristic? {
-    return peripheral.services?
+    return peripheral?.services?
       .first(where: { $0.uuid == serviceUUID })?
       .characteristics?
       .first(where: { $0.uuid == characteristicUUID })
@@ -222,7 +243,7 @@ public final class PerformanceMonitor
   /// PM5 was already connected before this app used it), discovery is started and the write is
   /// made as soon as it completes. Returns false only if the PM5 isn't connected.
   private func write(_ data:Data, service:CBUUID, characteristic:CBUUID) -> Bool {
-    guard isConnected else { return false }
+    guard isConnected, let peripheral = peripheral else { return false }
     pendingWrites.append(PendingWrite(service: service, characteristic: characteristic, data: data))
     if discoveredCharacteristic(service: service, characteristic: characteristic) != nil {
       flushPendingWrites()
@@ -237,18 +258,30 @@ public final class PerformanceMonitor
   /// Writes a raw CSAFE frame to the PM5 control (receive) characteristic.
   @discardableResult
   public func sendCSAFEFrame(_ frame:Data) -> Bool {
+    if kind == .usb {
+      #if os(macOS)
+      guard usbConnected, let poller = usbPoller else { return false }
+      poller.enqueue(frame)
+      return true
+      #else
+      return false
+      #endif
+    }
     return write(frame, service: Service.control.uuid, characteristic: ControlCharacteristic.command.uuid)
   }
 
   /// Sets how often the PM5 sends its general and additional status data.
   @discardableResult
   public func setStatusSampleRate(_ rate:RowingStatusSampleRateType) -> Bool {
+    // Over USB the app asks for the data itself, as fast as the PM5 answers.
+    if kind == .usb { return usbConnected }
     return write(Data([rate.rawValue]), service: Service.rowing.uuid,
                  characteristic: RowingCharacteristic.statusSampleRate.uuid)
   }
 
   /// Makes the writes that were waiting for their characteristic to be discovered.
   func flushPendingWrites() {
+    guard let peripheral = peripheral else { return }
     pendingWrites.removeAll { pending in
       guard let characteristic = discoveredCharacteristic(service: pending.service,
                                                           characteristic: pending.characteristic)
@@ -258,6 +291,59 @@ public final class PerformanceMonitor
       peripheral.writeValue(pending.data, for: characteristic, type: type)
       return true
     }
+  }
+
+  // MARK: Incoming data
+  /// Handles a notification's bytes: posts them as raw data, then lets the model update the subjects.
+  /// `known` is the characteristic they came from, if it is one this SDK knows.
+  func deliver(_ known:Characteristic?, name unknownName:String, data:Data?, at date:Date = Date()) {
+    let model = known?.parse(data: data)
+
+    if let data = data {
+      let name = known.map { "\(type(of: $0)).\($0)" } ?? unknownName
+      let fields: () -> [ParsedField] = { PeripheralDelegate.parsedFields(of: model) }
+      NotificationCenter.default.post(
+        name: PerformanceMonitor.DidReceiveRawDataNotification,
+        object: self,
+        userInfo: [RawDataKey.name: name,
+                   RawDataKey.data: data,
+                   RawDataKey.date: date,
+                   RawDataKey.fields: fields])
+    }
+
+    model?.updatePerformanceMonitor(performanceMonitor: self)
+  }
+
+  /// Handles the bytes of a Bluetooth characteristic that were built from a USB answer.
+  func deliver(_ characteristic:RowingCharacteristic, data:Data, at date:Date) {
+    deliver(characteristic, name: "", data: data, at: date)
+  }
+
+  /// Posts an event of the USB connection, such as its loop rate, to the raw data listeners.
+  func logUSB(_ rows:[(String, String)]) {
+    let fields = rows.map { ParsedField(name: $0.0, value: $0.1) }
+    NotificationCenter.default.post(
+      name: PerformanceMonitor.DidReceiveRawDataNotification,
+      object: self,
+      userInfo: [RawDataKey.name: "PM5.usb",
+                 RawDataKey.data: Data(),
+                 RawDataKey.date: Date(),
+                 RawDataKey.fields: { fields } as () -> [ParsedField]])
+  }
+
+  /// The fast USB loop's values, which go straight to the subjects.
+  func usbFastUpdate(elapsed:C2TimeInterval, distance:C2Distance, strokeState:StrokeState?, at date:Date) {
+    self.strokeState.value = strokeState
+    self.distance.value = distance
+    self.elapsedTime.value = elapsed
+    timedElapsedTime.value = TimedElapsedTime(elapsedTime: elapsed, strokeState: strokeState, receivedAt: date)
+  }
+
+  /// The USB connection stopped working.
+  func usbTransportFailed() {
+    #if os(macOS)
+    USBManager.disconnectPerformanceMonitor(performanceMonitor: self)
+    #endif
   }
 
   // MARK: Force curve
@@ -285,6 +371,7 @@ public final class PerformanceMonitor
 
   // MARK: -
   func updatePeripheralObservers() {
+    guard let peripheral = peripheral else { return }
     print("[PerformanceMonitor]updatePeripheralObservers")
     
     peripheral.services?.forEach({ (service:CBService) -> () in
@@ -306,12 +393,15 @@ public final class PerformanceMonitor
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // MARK: Equatable
 public func ==(lhs:PerformanceMonitor, rhs:PerformanceMonitor) -> Bool {
+  if lhs.kind == .usb || rhs.kind == .usb {
+    return lhs.kind == rhs.kind && lhs.usbIdentifier == rhs.usbIdentifier
+  }
   return (lhs.peripheral == rhs.peripheral)
 }
 
 // MARK: Hashable
 extension PerformanceMonitor: Hashable {
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(peripheral.hashValue)
+        if kind == .usb { hasher.combine(usbIdentifier) } else { hasher.combine(peripheral?.hashValue) }
     }
 }

@@ -7,7 +7,7 @@ let package = Package(
     name: "Concept2 SDK",
     platforms: [
         .iOS("13.0"),
-        .macOS("10.10"),
+        .macOS("10.15"),
         .tvOS("9.0")
     ],
     products: [
