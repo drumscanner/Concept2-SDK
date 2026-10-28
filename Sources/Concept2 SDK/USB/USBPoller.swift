@@ -21,7 +21,7 @@ import Foundation
 @available(macOS 10.15, *)
 final class USBPoller {
   private enum Request {
-    case fast, slow(Int), forcePlot, app, probe(Int)
+    case fast, slow(Int), forcePlot, app, probe(Int), strokeStats
   }
 
   // CSAFE command identifiers. The first group is in the 0x1A wrapper, the second is public.
@@ -49,6 +49,9 @@ final class USBPoller {
 
   /// A read of the force curve, whose 33 byte answer shows which report carries an answer longer than 20 bytes.
   private static let forcePlotFrame = CSAFEFrame.pmFrame([[Command.forcePlotData, 1, 32]])
+
+  /// `CSAFE_PM_GET_STROKESTATS` in the 0x1A wrapper. The PM5 answers it without an authentication (workout_35).
+  private static let strokeStatsFrame = CSAFEFrame.pmFrame([[0x6E, 1, 0]])
 
   private weak var monitor: PerformanceMonitor?
   private let transport: USBTransport
@@ -80,6 +83,10 @@ final class USBPoller {
   private var probeResults: [Bool] = []
   private var probeStart: Date?
   private var probeNotes: [String] = []
+  private var statsPending = false
+  private var statsLogged = 0
+  /// The PM5's own numbers of the last stroke (`GET_STROKESTATS`), when they are for the stroke counted here.
+  private var pm5Stats: (driveLength: Double, driveTime: Double, recovery: Double, distance: Double)?
 
   // The stroke that is being worked out.
   private var driveStart: TimeInterval?
@@ -151,6 +158,11 @@ final class USBPoller {
     if !appFrames.isEmpty {
       request = .app
       frame = appFrames.removeFirst()
+    } else if statsPending, let big = bigReportID {
+      statsPending = false
+      request = .strokeStats
+      frame = Self.strokeStatsFrame
+      reportID = big == 1 ? nil : big
     } else if plotPending, bigReportID != nil, now >= plotRetryAt {
       request = .forcePlot
       frame = Self.forcePlotFrame
@@ -189,6 +201,7 @@ final class USBPoller {
         self.timeoutsLogged += 1
         self.monitor?.logUSB([("event", "timeout"), ("request", "\(pending)")])
       }
+      if case .strokeStats = pending { self.pm5Stats = nil; self.monitor?.logUSB([("event", "strokeStats"), ("parsed", "timeout")]) }
       if case .probe(let step) = pending {
         self.probeResults.append(false)
         self.probeNotes.append("\(step): timeout")
@@ -221,6 +234,23 @@ final class USBPoller {
     let response = CSAFEFrame.parse(bytes)
     logRaw(request, bytes, parsed: response)
     guard let request else { return }
+    if case .strokeStats = request {
+      timeout?.cancel()
+      inFlight = nil
+      pm5Stats = nil
+      if let data = response?.commands[0x6E], data.count >= 8, Int(little(data[6..<8])) == strokeCount, data[2] > 0 {
+        pm5Stats = (Double(data[5]) / 100, Double(data[2]) / 100, Double(little(data[3..<5])) / 100, Double(little(data[0..<2])) / 100)
+      }
+      statsLogged += 1
+      guard statsLogged <= 40 else { pump(); return }
+      monitor?.logUSB([("event", "strokeStats"), ("parsed", response == nil ? "no" : "yes"),
+                       ("local", "count \(strokeCount) drive \(driveTime) recovery \(recoveryTime) distance \(strokeDistance)"),
+                       ("status", response.map { String(format: "%02X", $0.status) } ?? ""),
+                       ("commands", response?.commands.map { String(format: "%02X:", $0.key) + $0.value.map { String(format: "%02X", $0) }.joined() }.joined(separator: " ") ?? ""),
+                       ("hex", bytes.map { String(format: "%02X", $0) }.joined())])
+      pump()
+      return
+    }
     if case .probe(let step) = request {
       timeout?.cancel()
       inFlight = nil
@@ -239,7 +269,7 @@ final class USBPoller {
     case .fast: handleFast(response.commands, at: date)
     case .slow(let index): handleSlow(index, response.commands, at: date)
     case .forcePlot: handleForcePlot(response.commands, at: date)
-    case .app, .probe: break
+    case .app, .probe, .strokeStats: break
     }
     pump()
   }
@@ -299,6 +329,7 @@ final class USBPoller {
       strokeEventElapsed = time
       plotPoints = []
       if bigReportID != nil {
+        statsPending = true
         plotPending = true
         plotRetryAt = .distantPast
       } else {
@@ -414,8 +445,11 @@ final class USBPoller {
   private func deliverStroke(peak: Int, average: Int, at date: Date) {
     func big(_ value: Double) -> UInt32 { UInt32(clamping: Int(max(0, min(value, 16_000_000)))) }
     var bytes = le(big(strokeEventElapsed * 100), 3) + le(big(distance * 10), 3)
-    bytes += [0, UInt8(clamping: Int(max(0, min(driveTime * 100, 255))))]
-    bytes += le(big(recoveryTime * 100), 2) + le(big(strokeDistance * 100), 2)
+    // The PM5's own drive length, drive and recovery times and stroke distance when it gave them.
+    let drive = pm5Stats?.driveTime ?? driveTime, recovery = pm5Stats?.recovery ?? recoveryTime
+    let length = pm5Stats?.driveLength ?? 0, distancePerStroke = pm5Stats?.distance ?? strokeDistance
+    bytes += [UInt8(clamping: Int(max(0, min(length * 100, 255)))), UInt8(clamping: Int(max(0, min(drive * 100, 255))))]
+    bytes += le(big(recovery * 100), 2) + le(big(distancePerStroke * 100), 2)
     bytes += le(UInt32(clamping: peak * 10), 2) + le(UInt32(clamping: average * 10), 2) + le(0, 2)
     bytes += le(UInt32(clamping: strokeCount), 2)
     deliver(.strokeData, Data(bytes), at: date)

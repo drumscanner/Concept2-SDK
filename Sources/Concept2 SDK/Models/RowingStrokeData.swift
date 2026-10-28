@@ -54,7 +54,8 @@ struct RowingStrokeData: CharacteristicModel, CustomDebugStringConvertible {
     driveLength = C2DriveLength(driveLengthWithLow: arr[6])
     driveTime = C2DriveTime(timeWithLow: UInt32(arr[7]), mid: 0, high: 0)
     strokeRecoveryTime = C2TimeInterval(timeWithLow: UInt32(arr[8]), mid: UInt32(arr[9]), high: 0)
-    strokeDistance = C2Distance(distanceWithLow: UInt32(arr[10]), mid: UInt32(arr[11]), high: 0)
+    // In hundredths of a meter; the initializer counts tenths.
+    strokeDistance = C2Distance(distanceWithLow: UInt32(arr[10]), mid: UInt32(arr[11]), high: 0) / 10
     peakDriveForce = C2DriveForce(driveForceWithLow: UInt16(arr[12]), high: UInt16(arr[13]))
     averageDriveForce = C2DriveForce(driveForceWithLow: UInt16(arr[14]), high: UInt16(arr[15]))
     workPerStroke = C2Work(workWithLow: UInt16(arr[16]), high: UInt16(arr[17]))
