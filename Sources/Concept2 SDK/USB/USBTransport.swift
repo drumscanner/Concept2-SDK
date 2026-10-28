@@ -56,12 +56,14 @@ final class USBTransport {
 
   func open() -> Bool {
     guard !isOpen, IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone)) == kIOReturnSuccess else { return isOpen }
-    let context = Unmanaged.passUnretained(self).toOpaque()
+    // The device calls back until its cancel handler has run, so it keeps this object alive until then.
+    let context = Unmanaged.passRetained(self).toOpaque()
     IOHIDDeviceRegisterInputReportCallback(device, input, Self.inputSize, { context, _, _, _, _, report, length in
       guard let context else { return }
       let transport = Unmanaged<USBTransport>.fromOpaque(context).takeUnretainedValue()
       transport.onFrame?(Array(UnsafeBufferPointer(start: report, count: length)), Date())
     }, context)
+    IOHIDDeviceSetCancelHandler(device) { Unmanaged<USBTransport>.fromOpaque(context).release() }
     IOHIDDeviceSetDispatchQueue(device, queue)
     IOHIDDeviceActivate(device)
     isOpen = true
@@ -72,7 +74,7 @@ final class USBTransport {
     guard isOpen else { return }
     isOpen = false
     onFrame = nil
-    IOHIDDeviceRegisterInputReportCallback(device, input, Self.inputSize, nil, nil)
+    // A callback can't be changed once the device is active, so it is cancelled instead.
     IOHIDDeviceCancel(device)
     IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
   }
